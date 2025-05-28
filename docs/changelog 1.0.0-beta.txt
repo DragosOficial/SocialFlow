@@ -1,0 +1,16 @@
+Wersja 1.0.0-beta - 16.03.2025
+
+[Nowości]:
+   - Po długich oczekiwaniach udało się opuścić wersję 1.0.0-alpha! 
+   - Program dostał refaktoryzacje praktycznie całego kodu
+   - Za dużo nowości od alphy żeby każdą wymieniać, to tylko kilka z nich: dodanie całego systemu uprawnień, zmiana ui pracownika o 360 stopni, dodanie zupełnie nowej formy optymalizacji i wiele więcej!
+
+[Poprawki i ulepszenia]:
+   - Całkowicie przebudowano system autentyfikacji użytkownika
+   - Zrefaktoryzowano kod odpowiadający za generowanie danych kont Google
+   - Pełna optymalizacja kodu pod względem łączenia się z bazą danych
+
+[Naprawione błędy]:
+   - Zamykanie się okna zadania podczas potwierdzania akcji u workerów
+   - Nie zmieniający się stan aktywności konta po wyjściu z programu
+   - Usunięto błąd, który sporadycznie zamykał aplikację podczas aktualizacji

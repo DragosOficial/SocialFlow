@@ -1,0 +1,21 @@
+DOKŁADNY OPIS NA PODSTAWIE GOOGLE CHROME
+1. Uruchamiasz SocialFlow --> Wymyślasz swoje sub_id (nickname) (Tylko pierwsze uruchomienie) --> Zaznaczasz opcję generowania kont Google
+2. Uruchamiasz ccleaner u usuwasz wszystkie pliki jakie są możliwe z przeglądarki na której będziesz tworzył konta
+3. Otwierasz przeglądarkę
+4. (TO WYSTARCZY ZROBIĆ TYLKO RAZ) Wybierasz tworzenie nowego profilu pod przyciskiem "Dodaj" --> "Kontynuuj bez konta" --> Wybierasz wyszukiwarkę Google --> "Ustaw jako opcję domyślną" --> Musisz nadać nazwę profilu można dać obojętnie co, ale musi jakakolwiek być
+5. Akceptujesz pliki cookies (jeśli trzeba) --> instalujesz rozszerzenie "cookie editor" z tego linku https://chromewebstore.google.com/detail/cookie-editor/hlkenndednhfkekhgcdicdfddnkalmdm
+6. Jak się wejdzie w tą wtyczkę, trzeba na nią kliknąć i zaznaczyć "All sites" i dać zezwolenie w Google
+7. Wchodzisz na youtube.com (WAŻNE)
+8. Zaznaczasz "Zaakceptuj wszystko" (cookies) ULTRA WAŻNE!!!!!
+9. Naciskasz "Zaloguj się" (prawy górny róg)
+10. Utwórz konto --> Do użytku osobistego
+11. Uzupełniasz wszystkie dane dotyczące konta które są wypisane w konsoli programu (wystarczy podać tylko imie, nazwisko nie jest wymagane, nic nie zmienia w efekcie końcowym)
+12. Dodajesz adres pomocniczy jaki jest wypisany w konsoli i pomijasz dodanie numeru telefonu (JAK NIE MOŻNA POMINĄĆ, TRZEBA URUCHOMIĆ PONOWNIE KOMPUTER I ZMIENIĆ SIEĆ/LUB PO PROSTU JUŻ STWORZYŁO SIĘ ZA DUŻO KONT W DANYM MOMENCIE)
+13. Wybierasz rejestracje eksresową (1-etapową) 
+14. Akceptujesz wszystko (pozorowanie legitności)
+15. Jak rejestracja została zakończona powinno autoamtycznie zwrócić do youtube.com --> Teraz w tej wtyczce cookie editor nacisnąć przycisk export (ten najbardziej po prawo) i "JSON"
+16. Jak się wróci do folderu z programem powinien się pojawić plik "cookies_for_sm_youtube.txt" --> usunąć jego całą zawartość --> wkleić cookies z przeglądarki z youtube.com --> zapisać
+17. Parę razy zatwierdzić w programie (naciskając enter) aż nie pojawi się komunikat "Konwersja zakończona dla YouTube." (SPOSÓB ZATWIERDZANIA SIĘ ZMIENI NA PRZESTRZENI AKTUALIZACJI PONIEWAŻ OBECNY JEST INFANTYLNY)
+18. Potem wejść na google.pl --> skopiować --> wkleić --> zapisać
+19. Tak samo dla Gmaila
+20. Konto Gmail stworzone poprawnie --> powtórz proces
