@@ -4,6 +4,7 @@ import asyncio
 from typing import Dict, Optional, List, Any
 from datetime import datetime, timezone, timedelta
 from enum import Enum
+import traceback
 
 import aiohttp
 from aiohttp import ClientSession, ClientError, ClientTimeout
@@ -24,7 +25,7 @@ FIREBASE_ADMIN_KEY_PATH = os.getenv("FIREBASE_ADMIN_KEY_PATH")
 with open(FIREBASE_ADMIN_KEY_PATH, 'r') as key_file:
     admin_key = json.load(key_file)
 
-PRIVATE_KEY = admin_key["private_key"]
+API_KEY = admin_key["api_key"]
 PROJECT_ID = admin_key["project_id"]
 FIRESTORE_BASE_URL = f"https://firestore.googleapis.com/v1/projects/{PROJECT_ID}/databases/(default)/documents"
 
@@ -70,34 +71,6 @@ def format_firestore_data(data: Dict[str, object]) -> Dict[str, Dict]:
     """
     return {key: firestore_format_value(value) for key, value in data.items()}
 
-def get_firestore_url(collection: str, doc_id: Optional[str] = None) -> str:
-    """
-    Tworzy URL do Firestore dla danej kolekcji i opcjonalnego dokumentu.
-    """
-    base = f"{FIRESTORE_BASE_URL}/{collection}"
-    if doc_id:
-        base += f"/{doc_id}"
-    return f"{base}?key={PRIVATE_KEY}"
-
-# Retry z prostą logiką i timeoutami
-async def with_retry(
-    func, 
-    retries: int = 3, 
-    delay_sec: float = 1.0,
-    *args, **kwargs
-):
-    """
-    Wykonuje async funkcję z retry i delay pomiędzy próbami.
-    """
-    for attempt in range(1, retries + 1):
-        try:
-            return await func(*args, **kwargs)
-        except (ClientError, asyncio.TimeoutError) as e:
-            log_error(f"[Próba {attempt}] Błąd: {e}")
-            if attempt == retries:
-                raise
-            await asyncio.sleep(delay_sec)
-
 # -------------------------------
 # Klasa klienta Firestore (dla testowalności)
 # -------------------------------
@@ -107,8 +80,8 @@ class FirestoreClient:
     Abstrakcja do komunikacji z Firestore przez REST API.
     Umożliwia mockowanie w testach.
     """
-    def __init__(self, private_key: str, base_url: str, timeout: float = 10.0):
-        self.private_key = private_key
+    def __init__(self, api_key: str, base_url: str, timeout: float = 10.0):
+        self.api_key = api_key
         self.base_url = base_url
         self.timeout = timeout
         self.session: Optional[ClientSession] = None
@@ -126,21 +99,31 @@ class FirestoreClient:
         url = f"{self.base_url}/{collection}"
         if doc_id:
             url += f"/{doc_id}"
-        return f"{url}?key={self.private_key}"
+        full_url = f"{url}?key={self.api_key}"
+        log_info(f"DEBUG URL: {full_url}")
+        return full_url
+
 
     async def get(self, collection: str, doc_id: Optional[str] = None) -> Optional[Dict]:
         """
         Pobiera dokument lub kolekcję.
         """
         url = self._build_url(collection, doc_id)
-        async with self.session.get(url, headers=get_firestore_headers()) as resp:
-            if resp.status == 200:
-                return await resp.json()
-            elif resp.status == 404:
-                return None
-            else:
-                text = await resp.text()
-                raise ClientError(f"GET {url} - status: {resp.status}, response: {text}")
+        try:
+            async with self.session.get(url, headers=get_firestore_headers()) as resp:
+                if resp.status == 200:
+                    return await resp.json()
+                elif resp.status == 404:
+                    return None
+                else:
+                    text = await resp.text()
+                    # Tu dodajemy stacktrace do wyjątku
+                    stack = traceback.format_stack()
+                    raise ClientError(f"GET {url} - status: {resp.status}, response: {text}\nStack trace:\n{''.join(stack)}")
+        except Exception as e:
+            # Możemy też dopisać stacktrace jeśli wyjątek nie pochodzi z powyższego
+            stack = traceback.format_exc()
+            raise ClientError(f"GET {url} - błąd: {e}\nStack trace:\n{stack}") from e
 
     async def patch(self, collection: str, doc_id: str, data: Dict, update_mask_fields: Optional[List[str]] = None) -> None:
         """
@@ -150,13 +133,17 @@ class FirestoreClient:
         params = {}
         if update_mask_fields:
             params["updateMask.fieldPaths"] = ",".join(update_mask_fields)
-
-        async with self.session.patch(
-            url, json={"fields": data}, headers=get_firestore_headers(), params=params
-        ) as resp:
-            if resp.status not in {200, 201}:
-                text = await resp.text()
-                raise ClientError(f"PATCH {url} - status: {resp.status}, response: {text}")
+        try:
+            async with self.session.patch(
+                url, json={"fields": data}, headers=get_firestore_headers(), params=params
+            ) as resp:
+                if resp.status not in {200, 201}:
+                    text = await resp.text()
+                    stack = traceback.format_stack()
+                    raise ClientError(f"PATCH {url} - status: {resp.status}, response: {text}\nStack trace:\n{''.join(stack)}")
+        except Exception as e:
+            stack = traceback.format_exc()
+            raise ClientError(f"PATCH {url} - błąd: {e}\nStack trace:\n{stack}") from e
 
 # -------------------------------
 # Operacje na dokumentach Firestore
@@ -167,13 +154,14 @@ async def check_connection(client: FirestoreClient) -> None:
     Sprawdza połączenie z Firestore.
     """
     try:
-        data = await with_retry(client.get, collection="users")
+        data = await with_retry(lambda: client.get("users"))
         if data is not None:
             log_info("Połączenie z Firestore działa poprawnie.")
         else:
             log_error("Połączenie działa, ale kolekcja 'users' nie istnieje.")
     except Exception as e:
-        log_error(f"Błąd połączenia z Firestore: {e}")
+        stack = traceback.format_exc()
+        log_error(f"Błąd połączenia z Firestore: {e}, Traceback: {stack}")
 
 async def document_exists(client: FirestoreClient, collection: str, doc_id: str) -> bool:
     """
@@ -264,15 +252,11 @@ async def set_account_state(
 
     log_error(f"Nie znaleziono użytkownika '{user_id}' w kolekcjach: {', '.join(collections)}.")
 
-# -------------------------------
-# Przykładowe użycie w async loop
-# -------------------------------
-
 async def run_worker_loop():
     """
     Przykładowa pętla wykonywania zadań na aktywnych pracownikach.
     """
-    async with FirestoreClient(PRIVATE_KEY, FIRESTORE_BASE_URL) as client:
+    async with FirestoreClient(API_KEY, FIRESTORE_BASE_URL) as client:
         while True:
             active_workers = await fetch_active_workers(client)
 
@@ -337,21 +321,17 @@ def format_value(value):
         # domyślnie zamieniamy na string
         return {"stringValue": str(value)}
 
-def with_retry(fn, *args, retries: int = 3, delay: float = 1.0, **kwargs):
-    """
-    Próbuje wywołać async fn z retry i delay pomiędzy próbami.
-    """
-    async def wrapper():
-        last_exc = None
-        for i in range(1, retries + 1):
-            try:
-                return await fn(*args, **kwargs)
-            except (ClientError, asyncio.TimeoutError) as e:
-                last_exc = e
-                log_error(f"[Retry {i}/{retries}] {e}")
-                await asyncio.sleep(delay)
-        raise last_exc
-    return wrapper()
+async def with_retry(func, retries=3, delay=1, *args, **kwargs):
+    for attempt in range(1, retries + 1):
+        try:
+            result = await func(*args, **kwargs)  # <-- await tutaj
+            log_success(f"[Próba {attempt}/{retries}] success")
+            return result
+        except Exception as e:
+            log_error(f"[Próba {attempt}/{retries}] {e}")
+            if attempt == retries:
+                raise
+            await asyncio.sleep(delay)
 
 class FirestoreClient:
     """
@@ -424,7 +404,7 @@ async def cleanup(user_id: str, account_type: AccountType):
     Asynchronicznie oznacza konto jako nieaktywne w Firestore.
     """
     try:
-        async with FirestoreClient(PRIVATE_KEY, FIRESTORE_BASE_URL) as client:
+        async with FirestoreClient(API_KEY, FIRESTORE_BASE_URL) as client:
             await with_retry(client.patch,
                              "workers" if account_type == AccountType.WORKER else "admins",
                              user_id,
