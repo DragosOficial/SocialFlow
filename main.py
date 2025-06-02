@@ -4,21 +4,19 @@ import os
 import sys
 import traceback
 import win32api
-from aiohttp import ClientSession
 
 from utils.file_renamer import ensure_correct_filename
 import network.updater as updater
 from core.user_manager import UserManager
+from network.firebase_client import FirestoreClient, FIRESTORE_BASE_URL, API_KEY
 from utils.utils import (
-    log_error, log_info, start_new_session, clear_console, setup_logging
+    log_error, log_info, start_new_session, clear_console
 )
 from network.firebase_client import (
     check_connection, AccountType, set_account_state, cleanup_loop
 )
 from ui import admin_ui, worker_ui
 from core.config_manager import ConfigManager, LOCAL_VERSION
-
-setup_logging()  # logi będą również zapisywane do pliku
 
 class AppRunner:
     def __init__(self):
@@ -52,15 +50,16 @@ class AppRunner:
         ConfigManager().config
         await ensure_correct_filename(LOCAL_VERSION)
 
-        async with ClientSession() as session:
+        async with FirestoreClient(api_key=API_KEY, base_url=FIRESTORE_BASE_URL) as client:
             try:
                 await asyncio.gather(
                     updater.check_for_updates(LOCAL_VERSION),
-                    check_connection(session)
+                    check_connection(client)
                 )
             except Exception as e:
                 log_error(f"Błąd podczas inicjalizacji: {e}\n{traceback.format_exc()}")
                 raise
+
 
     async def run(self):
         await self.set_window_title()

@@ -38,7 +38,7 @@ TASK_TYPE_HANDLERS = {
 }
 
 # -------------------------------
-# Helpery i warstwa abstrakcji
+# Helpery i warstwa abstrakcyjna
 # -------------------------------
 
 def get_firestore_headers() -> Dict[str, str]:
@@ -332,57 +332,6 @@ async def with_retry(func, retries=3, delay=1, *args, **kwargs):
             if attempt == retries:
                 raise
             await asyncio.sleep(delay)
-
-class FirestoreClient:
-    """
-    Abstrakcja HTTP dla Firestore, umożliwiająca mockowanie i retry.
-    """
-    def __init__(self, private_key: str, base_url: str, timeout: float = 10.0):
-        self._key = private_key
-        self._base = base_url
-        self._timeout = timeout
-        self._session: Optional[ClientSession] = None
-
-    async def __aenter__(self):
-        self._session = aiohttp.ClientSession(timeout=ClientTimeout(total=self._timeout))
-        return self
-
-    async def __aexit__(self, exc_type, exc, tb):
-        if self._session:
-            await self._session.close()
-
-    def _url(self, collection: str, doc_id: Optional[str] = None) -> str:
-        path = f"{self._base}/{collection}"
-        if doc_id:
-            path += f"/{doc_id}"
-        return f"{path}?key={self._key}"
-
-    async def get(self, collection: str, doc_id: Optional[str] = None) -> Optional[dict]:
-        """
-        GET zwracający JSON lub None dla 404.
-        """
-        url = self._url(collection, doc_id)
-        async with self._session.get(url, headers=get_headers()) as resp:
-            if resp.status == 200:
-                return await resp.json()
-            if resp.status == 404:
-                return None
-            text = await resp.text()
-            raise ClientError(f"GET {url} status {resp.status}: {text}")
-
-    async def patch(self, collection: str, doc_id: str, fields: Dict, mask: Optional[List[str]] = None):
-        """
-        PATCH z opcjonalnym updateMask.
-        """
-        url = self._url(collection, doc_id)
-        params = {}
-        if mask:
-            params["updateMask.fieldPaths"] = ",".join(mask)
-        payload = {"fields": fields}
-        async with self._session.patch(url, headers=get_headers(), json=payload, params=params) as resp:
-            if resp.status not in (200, 201):
-                text = await resp.text()
-                raise ClientError(f"PATCH {url} status {resp.status}: {text}")
 
 # -------------------------------
 # Funkcje pomocnicze
