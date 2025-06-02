@@ -9,7 +9,7 @@ from functools import lru_cache
 from typing import Dict, List
 from core.config_manager import LOCAL_VERSION
 from aiohttp import ClientSession, ClientTimeout, ClientResponseError, TCPConnector
-from network.firebase_client import check_document_exists, AccountType, save_user_data, verify_user_data, get_user_permissions, update_user_data
+from network.firebase_client import check_document_exists, AccountType, save_user_data, verify_user_data, get_user_permissions, FirestoreClient
 from cryptography.fernet import Fernet
 from utils.utils import log_error, log_info, get_hardware_info
 
@@ -179,9 +179,11 @@ class UserManager:
         self.user_id = await self.load_local_data()
         if not self.user_id:
             return AccountType.UNAUTHORIZED
-        async with ClientSession(timeout=ClientTimeout(total=10)) as session:
+        async with FirestoreClient() as client:
+            session = client.session
+
             account_type, user_ip = await asyncio.gather(
-                verify_user_data(session, self.user_id, self.user_ip, default_account_data),
+                verify_user_data(client, self.user_id, self.user_ip, default_account_data),
                 self.get_user_ip(session)
             )
             self.user_ip = user_ip

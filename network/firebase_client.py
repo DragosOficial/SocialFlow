@@ -80,9 +80,14 @@ class FirestoreClient:
     Abstrakcja do komunikacji z Firestore przez REST API.
     Umożliwia mockowanie w testach.
     """
-    def __init__(self, api_key: str, base_url: str, timeout: float = 10.0):
-        self.api_key = api_key
-        self.base_url = base_url
+    def __init__(
+        self,
+        api_key: Optional[str] = None,
+        base_url: Optional[str] = None,
+        timeout: float = 10.0
+    ):
+        self.api_key = api_key or API_KEY
+        self.base_url = base_url or FIRESTORE_BASE_URL
         self.timeout = timeout
         self.session: Optional[ClientSession] = None
 

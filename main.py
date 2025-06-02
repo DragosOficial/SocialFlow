@@ -8,7 +8,7 @@ import win32api
 from utils.file_renamer import ensure_correct_filename
 import network.updater as updater
 from core.user_manager import UserManager
-from network.firebase_client import FirestoreClient, FIRESTORE_BASE_URL, API_KEY
+from network.firebase_client import FirestoreClient
 from utils.utils import (
     log_error, log_info, start_new_session, clear_console
 )
@@ -50,7 +50,7 @@ class AppRunner:
         ConfigManager().config
         await ensure_correct_filename(LOCAL_VERSION)
 
-        async with FirestoreClient(api_key=API_KEY, base_url=FIRESTORE_BASE_URL) as client:
+        async with FirestoreClient() as client:
             try:
                 await asyncio.gather(
                     updater.check_for_updates(LOCAL_VERSION),
