@@ -326,7 +326,7 @@ def format_value(value):
         # domyślnie zamieniamy na string
         return {"stringValue": str(value)}
 
-async def with_retry(func, retries=3, delay=1, *args, **kwargs):
+async def with_retry(func, *args, retries=3, delay=1, **kwargs):
     for attempt in range(1, retries + 1):
         try:
             result = await func(*args, **kwargs)  # <-- await tutaj
