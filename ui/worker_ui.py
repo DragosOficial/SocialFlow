@@ -5,7 +5,7 @@ from colorama import Fore, Style, init
 from utils.utils import clear_console, log_info, log_error, log_success
 from utils import banks
 from aiohttp import ClientSession
-from network.firebase_client import create_task, TaskType, TaskMonitor, cleanup
+from network.firebase_client import create_task, TaskType, TaskMonitor, cleanup, FirestoreClient
 from core.user_manager import UserManager
 from utils.tasks import ReportTypeMain, ReportTypeSubPrzemoc, ReportTypeSubNagosc, ReportTypeSubNienawisc
 
@@ -157,7 +157,8 @@ async def exit_cleanup(user_manager: UserManager):
 
 # Główne menu panelu pracownika – "wyłącza" UI przed wykonaniem zadania, a po jego zakończeniu wznawia UI
 async def worker_main_menu(user_manager: UserManager):
-    monitor = TaskMonitor(user_manager.user_id)
+    client = FirestoreClient()
+    monitor = TaskMonitor(client, user_manager.user_id)
     # Uruchamiamy monitor zadań jako zadanie w tle
     asyncio.create_task(monitor.start())
     

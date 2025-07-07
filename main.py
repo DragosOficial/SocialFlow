@@ -9,6 +9,7 @@ from utils.file_renamer import ensure_correct_filename
 import network.updater as updater
 from core.user_manager import UserManager
 from network.firebase_client import FirestoreClient
+from network.http_client import HttpClient
 from utils.utils import (
     log_error, log_info, start_new_session, clear_console
 )
@@ -72,6 +73,8 @@ class AppRunner:
             except Exception as e:
                 log_error(f"Błąd logowania: {e}\n{traceback.format_exc()}")
                 return
+            finally:
+                await HttpClient.get_instance().close()
 
             if not self.account_type or not self.user_id:
                 log_error("Brak prawidłowego typu konta lub ID użytkownika.")
@@ -85,13 +88,15 @@ class AppRunner:
             except Exception as e:
                 log_error(f"Błąd przy ustawianiu stanu konta: {e}\n{traceback.format_exc()}")
                 return
-
-            if self.account_type == AccountType.ADMIN:
-                await admin_ui.main_menu(user_manager)
-            elif self.account_type == AccountType.WORKER:
-                await worker_ui.main_menu(user_manager)
-            else:
-                log_error("Nieautoryzowany dostęp. Zamykanie aplikacji.")
+            try:
+                if self.account_type == AccountType.ADMIN:
+                    await admin_ui.main_menu(user_manager)
+                elif self.account_type == AccountType.WORKER:
+                    await worker_ui.main_menu(user_manager)
+                else:
+                    log_error("Nieautoryzowany dostęp. Zamykanie aplikacji.")
+            finally:
+                await HttpClient.get_instance().close()
 
 
 if __name__ == "__main__":

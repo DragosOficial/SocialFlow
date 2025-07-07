@@ -105,7 +105,7 @@ class FirestoreClient:
         if doc_id:
             url += f"/{doc_id}"
         full_url = f"{url}?key={self.api_key}"
-        log_info(f"DEBUG URL: {full_url}")
+        #log_info(f"DEBUG URL: {full_url}")
         return full_url
 
 
@@ -718,7 +718,8 @@ async def get_user_permissions(
         log_info(f"Permissions for {user_id}: {perms}")
         return perms
     except Exception as e:
-        log_error(f"get_user_permissions error: {e}")
+        stack = traceback.format_exc()
+        log_error(f"get_user_permissions error: {e} \n {stack}")
         return []
 
 async def add_missing_fields_to_user(
@@ -809,15 +810,15 @@ class TaskMonitor:
     """
 
     def __init__(self, user_id: str, client: FirestoreClient):
-        self.user_id = user_id
         self.client = client
-        self.is_running = False
+        self.user_id = user_id
+        self.is_task_running = False
 
     async def start(self) -> None:
         """Uruchamia pętlę monitorującą nowe zadania co 15s."""
         try:
             while True:
-                if not self.is_running:
+                if not self.is_task_running:
                     await self.check_and_execute()
                 await asyncio.sleep(15)
         except asyncio.CancelledError:
@@ -888,7 +889,7 @@ class TaskMonitor:
             log_error(f"No handler for {t_enum}")
             return
 
-        self.is_running = True
+        self.is_task_running = True
         clear_console()
         log_info(f"Executing {task_id} ({t_enum.name})")
         try:
@@ -902,7 +903,7 @@ class TaskMonitor:
         except Exception as e:
             log_error(f"execute_task error: {e}")
         finally:
-            self.is_running = False
+            self.is_task_running = False
 
     async def _update_list(self, task_id: str, list_field: str) -> None:
         """

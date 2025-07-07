@@ -6,10 +6,11 @@ import uuid
 import aiofiles
 from cachetools import TTLCache
 from functools import lru_cache
-from typing import Dict, List
+from typing import Dict, List, Optional
 from core.config_manager import LOCAL_VERSION
-from aiohttp import ClientSession, ClientTimeout, ClientResponseError, TCPConnector
+from aiohttp import ClientSession, ClientTimeout
 from network.firebase_client import check_document_exists, AccountType, save_user_data, verify_user_data, get_user_permissions, FirestoreClient
+from network.http_client import HttpClient
 from cryptography.fernet import Fernet
 from utils.utils import log_error, log_info, get_hardware_info
 
@@ -39,7 +40,11 @@ class UserManager:
             self.last_checked_time = 0
             self.permissions: List[str] = []  # Lista uprawnień użytkownika
             self.decrypt_url()
-            self.initialized = True 
+            self.authorized_ips_cache: Optional[dict] = None
+            self.authorized_ips_cache_time: float = 0
+            self.local_data_cached: Optional[str] = None
+            self.local_data_saved: bool = False
+            self.initialized = True
     
     async def _create_default_account_data(self) -> Dict:
         """
@@ -91,15 +96,19 @@ class UserManager:
         cipher = Fernet(self.KEY)
         return json.loads(cipher.decrypt(encrypted_data).decode())
 
-    @lru_cache(maxsize=1)
+
     async def save_local_data(self):
         """Asynchronicznie zapisuje zaszyfrowane ID użytkownika na urządzeniu."""
+        if self.local_data_saved:
+            return
         data = {"id": self.user_id}
         encrypted_data = self.encrypt_data(data)
         os.makedirs(os.path.dirname(self.LOCAL_DATA_FILE), exist_ok=True)
         async with aiofiles.open(self.LOCAL_DATA_FILE, "wb") as file:
             await file.write(encrypted_data)
         await self._set_file_permissions()
+        self.local_data_saved = True
+
 
     @lru_cache(maxsize=1)
     async def load_local_data(self) -> str | None:
@@ -111,68 +120,69 @@ class UserManager:
         decrypted_data = self.decrypt_data(encrypted_data)
         return decrypted_data.get("id")
 
-    async def fetch_authorized_ips(self, session: ClientSession) -> dict:
-        """Pobiera listę autoryzowanych IP z zewnętrznego źródła."""
-        current_time = asyncio.get_event_loop().time()
-        if self.authorized_ips is None or (current_time - self.last_checked_time) > self.CACHE_TIMEOUT:
-            try:
-                async with session.get(self.GOOGLE_IP_LIST_URL) as response:
-                    response.raise_for_status()
-                    response_data = await response.text()
-                    self.authorized_ips = json.loads(response_data)
-                    self.last_checked_time = current_time
-            except ClientResponseError as e:
-                log_error(f"Błąd podczas pobierania listy IP: {e}")
-                return {"admin_ips": [], "worker_ips": []}
-            except Exception as e:
-                log_error(f"Błąd ogólny: {e}")
-                return {"admin_ips": [], "worker_ips": []}
-        return self.authorized_ips
 
-    async def get_user_ip(self, session: ClientSession) -> str | None:
-        """Pobiera adres IP użytkownika, używając pamięci podręcznej i alternatywnego źródła."""
+    async def fetch_authorized_ips(self) -> dict:
+        """Pobiera listę autoryzowanych IP z zewnętrznego źródła, z lokalnym cache."""
+        now = asyncio.get_event_loop().time()
+        if self.authorized_ips_cache and (now - self.authorized_ips_cache_time) < self.CACHE_TIMEOUT:
+            return self.authorized_ips_cache
+
+        try:
+            session = await HttpClient.get_instance().get_session()
+            async with session.get(self.GOOGLE_IP_LIST_URL) as response:
+                response.raise_for_status()
+                response_data = await response.text()
+                self.authorized_ips_cache = json.loads(response_data)
+                self.authorized_ips_cache_time = now
+                return self.authorized_ips_cache
+        except Exception as e:
+            log_error(f"Błąd pobierania IP: {e}")
+            return {"admin_ips": [], "worker_ips": []}
+
+
+    async def get_user_ip(self) -> Optional[str]:
+        """Pobiera adres IP użytkownika, używając pamięci podręcznej."""
         if 'user_ip' in self.ip_cache:
             return self.ip_cache['user_ip']
+        session = await HttpClient.get_instance().get_session()
         try:
             async with session.get('https://api.ipify.org') as response:
                 response.raise_for_status()
                 ip = await response.text()
-                if not ip:
-                    raise ValueError("Pusty adres IP zwrócony przez api.ipify.org")
-                self.ip_cache['user_ip'] = ip
-                return ip
-        except Exception as e:
-            log_error(f"Błąd podczas pobierania IP z api.ipify.org: {e}")
-            try:
-                async with session.get('https://httpbin.org/ip') as response:
-                    response.raise_for_status()
-                    ip_data = await response.json()
-                    ip = ip_data.get('origin')
-                    if not ip:
-                        raise ValueError("Pusty adres IP zwrócony przez httpbin.org")
+                if ip:
                     self.ip_cache['user_ip'] = ip
                     return ip
-            except Exception as e:
-                log_error(f"Błąd podczas pobierania IP z httpbin.org: {e}")
-                return None
-    
-    async def check_ip(self, session: ClientSession):
-        """Asynchronicznie sprawdza IP użytkownika i dane użytkownika w Firestore."""
-        try:
-            user_ip, authorized_ips = await asyncio.gather(
-                self.get_user_ip(session),
-                self.fetch_authorized_ips(session)
-            )
-            if not user_ip:
-                log_error("Nie udało się pobrać adresu IP użytkownika.")
-                return AccountType.UNAUTHORIZED
-            if user_ip in authorized_ips.get("admin_ips", []):
-                return AccountType.ADMIN
-            elif user_ip in authorized_ips.get("worker_ips", []):
-                return AccountType.WORKER
         except Exception as e:
-            log_error(f"Błąd podczas sprawdzania IP: {e}")
+            log_error(f"IP api.ipify.org błąd: {e}")
+        try:
+            async with session.get('https://httpbin.org/ip') as response:
+                response.raise_for_status()
+                ip_data = await response.json()
+                ip = ip_data.get('origin')
+                if ip:
+                    self.ip_cache['user_ip'] = ip
+                    return ip
+        except Exception as e:
+            log_error(f"IP httpbin.org błąd: {e}")
+        return None
+
+    
+    async def check_ip(self):
+        try:
+            self.user_ip = await self.get_user_ip()
+            authorized_ips = await self.fetch_authorized_ips()
+            if not self.user_ip:
+                log_error("Nie udało się pobrać IP.")
+                return AccountType.UNAUTHORIZED
+            if self.user_ip in authorized_ips.get("admin_ips", []):
+                return AccountType.ADMIN
+            elif self.user_ip in authorized_ips.get("worker_ips", []):
+                return AccountType.WORKER
             return AccountType.UNAUTHORIZED
+        except Exception as e:
+            log_error(f"Błąd IP: {e}")
+            return AccountType.UNAUTHORIZED
+
 
     async def verify_local_data(self, default_account_data) -> AccountType:
         """Ładuje i weryfikuje dane użytkownika równolegle."""
@@ -184,10 +194,10 @@ class UserManager:
 
             account_type, user_ip = await asyncio.gather(
                 verify_user_data(client, self.user_id, self.user_ip, default_account_data),
-                self.get_user_ip(session)
+                self.get_user_ip()
             )
             self.user_ip = user_ip
-            await self.check_ip(session)
+            await self.check_ip()
             if account_type == "admin":
                 return AccountType.ADMIN
             elif account_type == "worker":
@@ -195,14 +205,16 @@ class UserManager:
             else:
                 return AccountType.UNAUTHORIZED
 
+
     async def register_user(self):
-        """Rejestruje użytkownika w odpowiedniej kolekcji na podstawie uprawnień."""
         user_input = input("Podaj swoje subID (nazwa dokumentu w Firestore): ").strip()
         self.sub_id = user_input if user_input else None
         self.user_id = str(uuid.uuid4())
+
+        # Tworzymy sesję HTTP dla IP i innych zapytań zewnętrznych
         async with ClientSession(timeout=ClientTimeout(total=10)) as session:
-            # Ustalamy typ konta na podstawie IP przed stworzeniem danych konta
             self.account_type = await self.check_ip(session)
+
             if self.account_type == AccountType.ADMIN:
                 collection = "admins"
             elif self.account_type == AccountType.WORKER:
@@ -210,52 +222,54 @@ class UserManager:
             else:
                 log_error("Nieautoryzowany użytkownik. Nie zapisuję do Firestore.")
                 return
-            # Tworzymy dane konta z domyślnymi uprawnieniami
+
+            # Tworzymy dane konta
             data = await self._create_default_account_data()
             await self.save_local_data()
-            if self.sub_id:
-                document_exists = await check_document_exists(session, self.user_id, collection)
-                if document_exists:
-                    log_error("Dokument o podanej nazwie już istnieje. Podaj inną nazwę subID:")
-                    self.sub_id = input("Nowa nazwa subID: ").strip()
-                    document_exists = await check_document_exists(session, self.user_id, collection)
+
+            # Firestore operacje - osobny klient Firestore
+            async with FirestoreClient() as client:
+                if self.sub_id:
+                    document_exists = await check_document_exists(client, self.user_id, collection)
                     if document_exists:
-                        log_error("Nie udało się znaleźć unikalnego subID.")
-                        return
-            await save_user_data(session, self.user_id, self.sub_id, data, collection)
-            new_permissions = await get_user_permissions(session, collection, self.user_id)
-            self.update_permissions(new_permissions)
+                        log_error("Dokument o podanej nazwie już istnieje. Podaj inną nazwę subID:")
+                        self.sub_id = input("Nowa nazwa subID: ").strip()
+                        document_exists = await check_document_exists(client, self.user_id, collection)
+                        if document_exists:
+                            log_error("Nie udało się znaleźć unikalnego subID.")
+                            return
+                await save_user_data(client, self.user_id, self.sub_id, data, collection)
+                new_permissions = await get_user_permissions(client, collection, self.user_id)
+                self.update_permissions(new_permissions)
 
 
     async def run(self) -> AccountType:
-        async with ClientSession(timeout=ClientTimeout(total=10)) as session:
-            self.user_ip = await self.get_user_ip(session)
-            default_account_data = await self._create_default_account_data()
-            self.account_type = await self.verify_local_data(default_account_data)
-            
-            # Jeśli dane lokalne zostały zweryfikowane, pobieramy uprawnienia
-            if self.account_type != AccountType.UNAUTHORIZED:
-                collection = "admins" if self.account_type == AccountType.ADMIN else "workers"
-                new_permissions = await get_user_permissions(session, collection, self.user_id)
-                self.update_permissions(new_permissions)
-                #update_user_data(session, self.user_id, self.sub_id, [], self.account_type)
-                return self.account_type, self.user_id
-            
-            # Reszta logiki rejestracji, gdy dane lokalne nie są zweryfikowane
-            if not self.user_ip:
-                log_error("Nie udało się pobrać IP użytkownika.")
-                self.self_destruct()
-                return AccountType.UNAUTHORIZED
-            self.account_type = await self.check_ip(session)
-            if self.account_type == AccountType.UNAUTHORIZED:
-                log_error("Nieautoryzowane IP. Program zostanie zamknięty.")
-                await asyncio.sleep(3)
-                self.self_destruct()
-                return self.account_type, self.user_id
-            
-            log_info("Pierwsze uruchomienie. Rejestracja użytkownika...")
-            await self.register_user()
+        self.user_ip = await self.get_user_ip()
+        default_account_data = await self._create_default_account_data()
+        account_type = await self.verify_local_data(default_account_data)
+        
+        if account_type != AccountType.UNAUTHORIZED:
+            collection = "admins" if account_type == AccountType.ADMIN else "workers"
+            async with FirestoreClient() as client:
+                new_permissions = await get_user_permissions(client, collection, self.user_id)
+            self.update_permissions(new_permissions)
+            return account_type, self.user_id
+        
+        if not self.user_ip:
+            log_error("Nie udało się pobrać IP użytkownika.")
+            self.self_destruct()
+            return AccountType.UNAUTHORIZED
+        
+        self.account_type = await self.check_ip()
+        if self.account_type == AccountType.UNAUTHORIZED:
+            log_error("Nieautoryzowane IP. Program zostanie zamknięty.")
+            await asyncio.sleep(3)
+            self.self_destruct()
             return self.account_type, self.user_id
+        
+        log_info("Pierwsze uruchomienie. Rejestracja użytkownika...")
+        await self.register_user()
+        return self.account_type, self.user_id
 
 
     def self_destruct(self):
