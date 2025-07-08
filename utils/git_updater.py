@@ -82,7 +82,9 @@ def update_repo_and_push():
         print("Brak zmian do przesłania.")
         return
 
-    print("Zmienione pliki:", changed_files)
+    print("Zmienione pliki:")
+    for f in changed_files:
+        print(f" - {f}")
 
     # Commit i push
     print("Commitowanie i wysyłanie zmian...")
