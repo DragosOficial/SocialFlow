@@ -4,6 +4,7 @@ import sys
 import GPUtil
 import platform
 import subprocess
+import re
 from google.cloud import storage
 from google.cloud import firestore
 from firebase_admin import credentials, firestore, initialize_app, storage
@@ -21,6 +22,8 @@ firebase_app = initialize_app(cred, {
 db = firestore.client()
 storage_bucket = storage.bucket()
 
+ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
+
 # Ustawienie logowania
 logging.basicConfig(
     level=logging.ERROR,  # W zależności od poziomu, np. DEBUG, INFO, ERROR
@@ -34,11 +37,21 @@ logging.basicConfig(
 def clear_console():
     os.system("cls" if os.name == "nt" else "clear")
 
+
+def strip_ansi_codes(text: str) -> str:
+    """Usuwa sekwencje ANSI (kolory itp.) z tekstu."""
+    return ansi_escape.sub('', text)
+
+
 def log_message(prefix, message, is_logging=True):
-    """Displays a message with a prefix in the console and logs it to a file."""
-    formatted_message = f"{prefix} {message}"
+    """Displays a message with a prefix in the console and logs it to a file (bez kolorów)."""
+    plain_prefix = strip_ansi_codes(prefix)  # bez kolorów
+    formatted_message = f"{prefix} {message}"            # kolorowe na konsolę
+    plain_message = f"{plain_prefix} {message}"          # czysty tekst do pliku
+
     print(formatted_message)
-    log_to_file(formatted_message)  # Display in console
+    if is_logging:
+        log_to_file(plain_message)
 
 def log_success(message):
     """Displays a success message in green and logs it."""
